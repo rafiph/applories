@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 import 'ui/auth/auth_viewmodel.dart';
 import 'ui/auth/login_screen.dart';
 import 'ui/home/home_screen.dart';
+import 'ui/home/profile_viewmodel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,8 +22,11 @@ class ApplioresApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthViewModel(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthViewModel()),
+        ChangeNotifierProvider(create: (_) => ProfileViewModel()),
+      ],
       child: MaterialApp(
         title: 'Applories',
         debugShowCheckedModeBanner: false,
