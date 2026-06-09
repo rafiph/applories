@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../auth/auth_viewmodel.dart';
 import 'profile_viewmodel.dart';
 import '../../domain/model/user_profile.dart';
+import '../food/food_logging_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,7 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // Called by Consumer when profile finishes loading — fills form once.
   void _populateIfNeeded(UserProfile? profile) {
     if (_populated || profile == null) return;
     _populated = true;
@@ -79,10 +79,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openFeature(String name) {
-    // TODO: navigate to actual feature screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$name — coming soon!')),
-    );
+    if (name == 'AI Calorie Counter') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const FoodLoggingScreen()),
+      );
+    } else {
+      // TODO: navigate to actual feature screen
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$name — coming soon!')),
+      );
+    }
   }
 
   @override

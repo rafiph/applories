@@ -8,6 +8,7 @@ import 'ui/auth/auth_viewmodel.dart';
 import 'ui/auth/login_screen.dart';
 import 'ui/home/home_screen.dart';
 import 'ui/home/profile_viewmodel.dart';
+import 'ui/food/food_logging_viewmodel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ class ApplioresApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthViewModel()),
         ChangeNotifierProvider(create: (_) => ProfileViewModel()),
+        ChangeNotifierProvider(create: (_) => FoodLoggingViewModel()),
       ],
       child: MaterialApp(
         title: 'Applories',
