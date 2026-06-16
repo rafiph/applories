@@ -10,6 +10,7 @@ import 'ui/home/home_screen.dart';
 import 'ui/home/profile_viewmodel.dart';
 import 'ui/food/food_logging_viewmodel.dart';
 import 'ui/progress/progress_viewmodel.dart';
+import 'ui/workout/workout_viewmodel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,7 @@ class ApplioresApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ProfileViewModel()),
         ChangeNotifierProvider(create: (_) => FoodLoggingViewModel()),
         ChangeNotifierProvider(create: (_) => ProgressViewModel()),
+        ChangeNotifierProvider(create: (_) => WorkoutViewModel()),
       ],
       child: MaterialApp(
         title: 'Applories',
