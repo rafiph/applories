@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import '../../domain/model/food_log.dart';
 import 'food_logging_viewmodel.dart';
 
 class FoodLoggingScreen extends StatefulWidget {
@@ -90,6 +91,24 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
         ),
       );
     }
+  }
+
+  void _showEditSheet(FoodLog log) {
+    final vm = context.read<FoodLoggingViewModel>();
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _EditFoodLogSheet(
+        log: log,
+        userId: uid,
+        viewModel: vm,
+      ),
+    );
   }
 
   @override
@@ -226,7 +245,10 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                               label: Text('${log.calories} kcal'),
                               backgroundColor: colorScheme.secondaryContainer,
                             ),
-                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _showEditSheet(log),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline),
                               onPressed: () {
@@ -282,6 +304,272 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+class _EditFoodLogSheet extends StatefulWidget {
+  final FoodLog log;
+  final String userId;
+  final FoodLoggingViewModel viewModel;
+
+  const _EditFoodLogSheet({
+    required this.log,
+    required this.userId,
+    required this.viewModel,
+  });
+
+  @override
+  State<_EditFoodLogSheet> createState() => _EditFoodLogSheetState();
+}
+
+class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _caloriesController;
+  Uint8List? _previewImageBytes;
+  bool _analyzing = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.log.foodName);
+    _caloriesController =
+        TextEditingController(text: widget.log.calories.toString());
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _caloriesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reanalyze() async {
+    // 1. Pick image source
+    final source = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Image Source'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'camera'),
+            child: const Text('Camera'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'gallery'),
+            child: const Text('Gallery'),
+          ),
+        ],
+      ),
+    );
+
+    if (source == null || !mounted) return;
+
+    // 2. Pick image
+    final imageBytes = source == 'camera'
+        ? await widget.viewModel.captureFromCamera()
+        : await widget.viewModel.pickFromGallery();
+
+    if (imageBytes == null || !mounted) return;
+
+    setState(() {
+      _analyzing = true;
+      _previewImageBytes = imageBytes;
+    });
+
+    // 3. Analyze
+    final result = await widget.viewModel.reanalyzeImage(imageBytes);
+
+    if (!mounted) return;
+    setState(() => _analyzing = false);
+
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to analyze image'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final newName = result['foodName'] as String;
+    final newCalories = result['calories'] as int;
+
+    // 4. Ask about name update
+    final updateName = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('AI Analysis Result'),
+        content: Text(
+          'Identified: "$newName"\nCalories: $newCalories kcal\n\nUpdate food name too?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No, keep current'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, update'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+
+    // 5. Apply results — calories always updated, name conditionally
+    setState(() {
+      _caloriesController.text = newCalories.toString();
+      if (updateName == true) _nameController.text = newName;
+    });
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+    final calories = int.tryParse(_caloriesController.text.trim());
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Food name cannot be empty')),
+      );
+      return;
+    }
+    if (calories == null || calories < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid calorie amount')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    final success = await widget.viewModel.updateFoodLog(
+      widget.userId,
+      widget.log.id,
+      foodName: name,
+      calories: calories,
+    );
+
+    if (!mounted) return;
+
+    if (success) {
+      Navigator.pop(context);
+    } else {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.viewModel.errorMessage ?? 'Failed to save'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final busy = _analyzing || _saving;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Row(
+            children: [
+              Text('Edit Meal', style: Theme.of(context).textTheme.titleLarge),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: busy ? null : () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // New image preview (only shown after re-analysis)
+          if (_previewImageBytes != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                _previewImageBytes!,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Food name
+          TextField(
+            controller: _nameController,
+            enabled: !busy,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Food name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Calories
+          TextField(
+            controller: _caloriesController,
+            enabled: !busy,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Calories (kcal)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Re-analyze button
+          OutlinedButton.icon(
+            onPressed: busy ? null : _reanalyze,
+            icon: _analyzing
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colorScheme.primary,
+                    ),
+                  )
+                : const Icon(Icons.auto_awesome),
+            label: Text(_analyzing ? 'Analyzing…' : 'Re-analyze with new image'),
+          ),
+          const SizedBox(height: 8),
+
+          // Save button
+          FilledButton(
+            onPressed: busy ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Save changes'),
+          ),
+        ],
       ),
     );
   }

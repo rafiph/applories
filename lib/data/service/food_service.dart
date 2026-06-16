@@ -74,6 +74,24 @@ class FoodService {
     }
   }
 
+  Future<void> updateFoodLog(
+    String userId,
+    String foodLogId,
+    Map<String, dynamic> updates,
+  ) async {
+    try {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('foodLogs')
+          .doc(foodLogId)
+          .update(updates);
+    } catch (e) {
+      developer.log('Error updating food log', error: e);
+      rethrow;
+    }
+  }
+
   Future<int> getTotalCaloriesForDate(String userId, DateTime date) async {
     try {
       final logs = await getFoodLogsForDate(userId, date);

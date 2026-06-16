@@ -52,19 +52,15 @@ class FoodLoggingViewModel extends ChangeNotifier {
       notifyListeners();
 
       final analysisResult = await _visionService.analyzeFoodImage(imageBytes);
-      
-      final foodName = analysisResult['foodName'] as String;
-      final calories = analysisResult['calories'] as int;
 
       final foodLog = FoodLog(
-        id: '', 
-        foodName: foodName,
-        calories: calories,
+        id: '',
+        foodName: analysisResult['foodName'] as String,
+        calories: analysisResult['calories'] as int,
         timestamp: DateTime.now(),
       );
 
       await _foodService.saveFoodLog(userId, foodLog);
-
       await loadFoodLogs(userId);
 
       isLoading = false;
@@ -78,6 +74,40 @@ class FoodLoggingViewModel extends ChangeNotifier {
     }
   }
 
+  /// Returns raw AI result {foodName, calories} without saving.
+  /// Caller decides what to do with the result.
+  Future<Map<String, dynamic>?> reanalyzeImage(Uint8List imageBytes) async {
+    try {
+      return await _visionService.analyzeFoodImage(imageBytes);
+    } catch (e) {
+      errorMessage = 'Failed to analyze image: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<bool> updateFoodLog(
+    String userId,
+    String foodLogId, {
+    String? foodName,
+    int? calories,
+  }) async {
+    try {
+      final updates = <String, dynamic>{};
+      if (foodName != null) updates['foodName'] = foodName;
+      if (calories != null) updates['calories'] = calories;
+      if (updates.isEmpty) return true;
+
+      await _foodService.updateFoodLog(userId, foodLogId, updates);
+      await loadFoodLogs(userId);
+      return true;
+    } catch (e) {
+      errorMessage = 'Failed to update food log: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> loadFoodLogs(String userId) async {
     try {
       isLoading = true;
@@ -85,7 +115,8 @@ class FoodLoggingViewModel extends ChangeNotifier {
       notifyListeners();
 
       foodLogs = await _foodService.getFoodLogsForDate(userId, DateTime.now());
-      totalCaloriesToday = await _foodService.getTotalCaloriesForDate(userId, DateTime.now());
+      totalCaloriesToday =
+          await _foodService.getTotalCaloriesForDate(userId, DateTime.now());
 
       isLoading = false;
       notifyListeners();
