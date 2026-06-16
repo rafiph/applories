@@ -6,6 +6,7 @@ import 'profile_viewmodel.dart';
 import '../../domain/model/user_profile.dart';
 import '../food/food_logging_screen.dart';
 import '../progress/progress_screen.dart';
+import '../workout/workout_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -90,6 +91,11 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
         MaterialPageRoute(builder: (context) => const ProgressScreen()),
       );
+    } else if (name == 'Workout Planner') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const WorkoutScreen()),
+      );  
     } else {
       // TODO: navigate to actual feature screen
       ScaffoldMessenger.of(context).showSnackBar(
