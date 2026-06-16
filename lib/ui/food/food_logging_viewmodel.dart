@@ -13,7 +13,28 @@ class FoodLoggingViewModel extends ChangeNotifier {
   List<FoodLog> foodLogs = [];
   bool isLoading = false;
   String? errorMessage;
-  int totalCaloriesToday = 0;
+  int totalCaloriesForDate = 0;
+
+  DateTime _selectedDate = DateTime.now();
+  DateTime get selectedDate => _selectedDate;
+
+  bool get isViewingToday {
+    final now = DateTime.now();
+    return _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+  }
+
+  Future<void> changeDate(String userId, DateTime date) async {
+    _selectedDate = date;
+    await loadFoodLogs(userId);
+  }
+
+  Future<void> goToPreviousDay(String userId) =>
+      changeDate(userId, _selectedDate.subtract(const Duration(days: 1)));
+
+  Future<void> goToNextDay(String userId) =>
+      changeDate(userId, _selectedDate.add(const Duration(days: 1)));
 
   Future<Uint8List?> captureFromCamera() async {
     try {
@@ -74,8 +95,6 @@ class FoodLoggingViewModel extends ChangeNotifier {
     }
   }
 
-  /// Returns raw AI result {foodName, calories} without saving.
-  /// Caller decides what to do with the result.
   Future<Map<String, dynamic>?> reanalyzeImage(Uint8List imageBytes) async {
     try {
       return await _visionService.analyzeFoodImage(imageBytes);
@@ -114,9 +133,9 @@ class FoodLoggingViewModel extends ChangeNotifier {
       errorMessage = null;
       notifyListeners();
 
-      foodLogs = await _foodService.getFoodLogsForDate(userId, DateTime.now());
-      totalCaloriesToday =
-          await _foodService.getTotalCaloriesForDate(userId, DateTime.now());
+      foodLogs = await _foodService.getFoodLogsForDate(userId, _selectedDate);
+      totalCaloriesForDate =
+          await _foodService.getTotalCaloriesForDate(userId, _selectedDate);
 
       isLoading = false;
       notifyListeners();

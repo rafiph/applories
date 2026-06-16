@@ -16,13 +16,42 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
   Uint8List? _selectedImageBytes;
   bool _analyzing = false;
 
+  String _uid() => FirebaseAuth.instance.currentUser!.uid;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      context.read<FoodLoggingViewModel>().loadFoodLogs(uid);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final vm = context.read<FoodLoggingViewModel>();
+      await vm.changeDate(_uid(), DateTime.now());
     });
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(date.year, date.month, date.day);
+    if (d == today) return 'Today';
+    if (d == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final suffix = date.year != now.year ? ' ${date.year}' : '';
+    return '${months[date.month - 1]} ${date.day}$suffix';
+  }
+
+  Future<void> _pickDate(FoodLoggingViewModel vm) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: vm.selectedDate,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+    );
+    if (picked != null && mounted) {
+      await vm.changeDate(_uid(), picked);
+    }
   }
 
   void _showImageSourceDialog() {
@@ -63,10 +92,9 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
 
   Future<void> _analyzeFood(Uint8List imageBytes) async {
     setState(() => _analyzing = true);
-    final uid = FirebaseAuth.instance.currentUser!.uid;
     final success = await context
         .read<FoodLoggingViewModel>()
-        .analyzeFoodImageAndSave(imageBytes, uid);
+        .analyzeFoodImageAndSave(imageBytes, _uid());
 
     if (!mounted) return;
 
@@ -95,7 +123,6 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
 
   void _showEditSheet(FoodLog log) {
     final vm = context.read<FoodLoggingViewModel>();
-    final uid = FirebaseAuth.instance.currentUser!.uid;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -103,11 +130,7 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _EditFoodLogSheet(
-        log: log,
-        userId: uid,
-        viewModel: vm,
-      ),
+      builder: (_) => _EditFoodLogSheet(log: log, userId: _uid(), viewModel: vm),
     );
   }
 
@@ -116,62 +139,56 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Log Food'),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border.all(color: colorScheme.outline),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: _selectedImageBytes != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(_selectedImageBytes!),
-                    )
-                  : Container(
-                      height: 300,
-                      alignment: Alignment.center,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.camera_alt_outlined,
-                            size: 64,
-                            color: colorScheme.outline,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No image selected',
-                            style: TextStyle(color: colorScheme.outline),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _analyzing ? null : _showImageSourceDialog,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Select Image'),
-                    ),
+      appBar: AppBar(title: const Text('Log Food'), centerTitle: true),
+      body: Consumer<FoodLoggingViewModel>(
+        builder: (context, vm, _) => SingleChildScrollView(
+          child: Column(
+            children: [
+              if (vm.isViewingToday) ...[
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: colorScheme.outline),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            Consumer<FoodLoggingViewModel>(
-              builder: (context, viewModel, _) => Container(
-                margin: const EdgeInsets.all(16),
+                  child: _selectedImageBytes != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(_selectedImageBytes!),
+                        )
+                      : Container(
+                          height: 200,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.camera_alt_outlined,
+                                  size: 64, color: colorScheme.outline),
+                              const SizedBox(height: 16),
+                              Text('No image selected',
+                                  style: TextStyle(color: colorScheme.outline)),
+                            ],
+                          ),
+                        ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _analyzing ? null : _showImageSourceDialog,
+                          icon: const Icon(Icons.camera_alt),
+                          label: const Text('Select Image'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: colorScheme.primaryContainer,
@@ -181,12 +198,14 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Today\'s Total',
+                      vm.isViewingToday
+                          ? "Today's Total"
+                          : '${_formatDate(vm.selectedDate)} Total',
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${viewModel.totalCaloriesToday} kcal',
+                      '${vm.totalCaloriesForDate} kcal',
                       style: Theme.of(context).textTheme.displaySmall?.copyWith(
                             color: colorScheme.primary,
                           ),
@@ -194,45 +213,67 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Today\'s Meals',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            Consumer<FoodLoggingViewModel>(
-              builder: (context, viewModel, _) {
-                if (viewModel.isLoading) {
-                  return const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: CircularProgressIndicator(),
-                  );
-                }
-
-                if (viewModel.foodLogs.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Text(
-                      'No meals logged yet',
-                      style: TextStyle(color: colorScheme.outline),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      onPressed: () => vm.goToPreviousDay(_uid()),
                     ),
-                  );
-                }
-
-                return ListView.builder(
+                    GestureDetector(
+                      onTap: () => _pickDate(vm),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _formatDate(vm.selectedDate),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.calendar_today,
+                                size: 16, color: colorScheme.primary),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      onPressed: vm.isViewingToday
+                          ? null
+                          : () => vm.goToNextDay(_uid()),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (vm.isLoading)
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                )
+              else if (vm.foodLogs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Text(
+                    'No meals logged',
+                    style: TextStyle(color: colorScheme.outline),
+                  ),
+                )
+              else
+                ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: viewModel.foodLogs.length,
+                  itemCount: vm.foodLogs.length,
                   itemBuilder: (context, index) {
-                    final log = viewModel.foodLogs[index];
+                    final log = vm.foodLogs[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                          horizontal: 16, vertical: 8),
                       child: ListTile(
                         title: Text(log.foodName),
                         subtitle: Text(
@@ -251,58 +292,48 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline),
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('Delete Meal'),
-                                    content: const Text(
-                                      'Are you sure you want to delete this meal?',
+                              onPressed: () => showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Delete Meal'),
+                                  content: const Text(
+                                      'Are you sure you want to delete this meal?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancel'),
                                     ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () async {
-                                          Navigator.pop(context);
-                                          final uid = FirebaseAuth
-                                              .instance.currentUser!.uid;
-                                          final success = await viewModel
-                                              .deleteFoodLog(uid, log.id);
-                                          if (!mounted) return;
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                success
-                                                    ? 'Meal deleted'
-                                                    : 'Failed to delete meal',
-                                              ),
-                                              backgroundColor: success
-                                                  ? Colors.green
-                                                  : Colors.red,
-                                            ),
-                                          );
-                                        },
-                                        child: const Text('Delete'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
+                                    TextButton(
+                                      onPressed: () async {
+                                        Navigator.pop(context);
+                                        final success = await vm.deleteFoodLog(
+                                            _uid(), log.id);
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(SnackBar(
+                                          content: Text(success
+                                              ? 'Meal deleted'
+                                              : 'Failed to delete meal'),
+                                          backgroundColor: success
+                                              ? Colors.green
+                                              : Colors.red,
+                                        ));
+                                      },
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
                     );
                   },
-                );
-              },
-            ),
-            const SizedBox(height: 32),
-          ],
+                ),
+              const SizedBox(height: 32),
+            ],
+          ),
         ),
       ),
     );
@@ -349,27 +380,23 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
   }
 
   Future<void> _reanalyze() async {
-    // 1. Pick image source
     final source = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Select Image Source'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, 'camera'),
-            child: const Text('Camera'),
-          ),
+              onPressed: () => Navigator.pop(ctx, 'camera'),
+              child: const Text('Camera')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, 'gallery'),
-            child: const Text('Gallery'),
-          ),
+              onPressed: () => Navigator.pop(ctx, 'gallery'),
+              child: const Text('Gallery')),
         ],
       ),
     );
 
     if (source == null || !mounted) return;
 
-    // 2. Pick image
     final imageBytes = source == 'camera'
         ? await widget.viewModel.captureFromCamera()
         : await widget.viewModel.pickFromGallery();
@@ -381,7 +408,6 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
       _previewImageBytes = imageBytes;
     });
 
-    // 3. Analyze
     final result = await widget.viewModel.reanalyzeImage(imageBytes);
 
     if (!mounted) return;
@@ -390,9 +416,8 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to analyze image'),
-          backgroundColor: Colors.red,
-        ),
+            content: Text('Failed to analyze image'),
+            backgroundColor: Colors.red),
       );
       return;
     }
@@ -400,30 +425,25 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
     final newName = result['foodName'] as String;
     final newCalories = result['calories'] as int;
 
-    // 4. Ask about name update
     final updateName = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('AI Analysis Result'),
         content: Text(
-          'Identified: "$newName"\nCalories: $newCalories kcal\n\nUpdate food name too?',
-        ),
+            'Identified: "$newName"\nCalories: $newCalories kcal\n\nUpdate food name too?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('No, keep current'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No, keep current')),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Yes, update'),
-          ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Yes, update')),
         ],
       ),
     );
 
     if (!mounted) return;
 
-    // 5. Apply results — calories always updated, name conditionally
     setState(() {
       _caloriesController.text = newCalories.toString();
       if (updateName == true) _nameController.text = newName;
@@ -487,7 +507,6 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header
           Row(
             children: [
               Text('Edit Meal', style: Theme.of(context).textTheme.titleLarge),
@@ -499,22 +518,14 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
             ],
           ),
           const SizedBox(height: 16),
-
-          // New image preview (only shown after re-analysis)
           if (_previewImageBytes != null) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.memory(
-                _previewImageBytes!,
-                height: 160,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
+              child: Image.memory(_previewImageBytes!,
+                  height: 160, width: double.infinity, fit: BoxFit.cover),
             ),
             const SizedBox(height: 16),
           ],
-
-          // Food name
           TextField(
             controller: _nameController,
             enabled: !busy,
@@ -525,8 +536,6 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
             ),
           ),
           const SizedBox(height: 12),
-
-          // Calories
           TextField(
             controller: _caloriesController,
             enabled: !busy,
@@ -537,8 +546,6 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Re-analyze button
           OutlinedButton.icon(
             onPressed: busy ? null : _reanalyze,
             icon: _analyzing
@@ -546,16 +553,12 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: colorScheme.primary,
-                    ),
+                        strokeWidth: 2, color: colorScheme.primary),
                   )
                 : const Icon(Icons.auto_awesome),
             label: Text(_analyzing ? 'Analyzing…' : 'Re-analyze with new image'),
           ),
           const SizedBox(height: 8),
-
-          // Save button
           FilledButton(
             onPressed: busy ? null : _save,
             child: _saving
@@ -563,9 +566,7 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
+                        strokeWidth: 2, color: Colors.white),
                   )
                 : const Text('Save changes'),
           ),
