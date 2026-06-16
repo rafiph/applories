@@ -1,9 +1,11 @@
 import 'dart:typed_data';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../../domain/model/food_log.dart';
 import 'food_logging_viewmodel.dart';
+import '../../data/service/storage_service.dart';
 
 class FoodLoggingScreen extends StatefulWidget {
   const FoodLoggingScreen({super.key});
@@ -130,9 +132,109 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _EditFoodLogSheet(log: log, userId: _uid(), viewModel: vm),
+      builder: (_) =>
+          _EditFoodLogSheet(log: log, userId: _uid(), viewModel: vm),
     );
   }
+
+  // ── Food log card ──────────────────────────────────────────────────────────
+
+  Widget _buildLogCard(FoodLog log, ColorScheme colorScheme) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showEditSheet(log),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Thumbnail
+              _FoodThumbnail(imageUrl: log.imageUrl, colorScheme: colorScheme),
+              const SizedBox(width: 12),
+              // Food info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      log.foodName,
+                      style: Theme.of(context).textTheme.titleSmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${log.timestamp.hour}:${log.timestamp.minute.toString().padLeft(2, '0')}',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: colorScheme.outline),
+                    ),
+                  ],
+                ),
+              ),
+              // Calories chip
+              Chip(
+                label: Text('${log.calories} kcal'),
+                backgroundColor: colorScheme.secondaryContainer,
+                labelStyle: TextStyle(
+                  color: colorScheme.onSecondaryContainer,
+                  fontSize: 12,
+                ),
+                padding: EdgeInsets.zero,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              // Action icons
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 20),
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _showEditSheet(log),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 20),
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _confirmDelete(log),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDelete(FoodLog log) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Meal'),
+        content: const Text('Are you sure you want to delete this meal?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final vm = context.read<FoodLoggingViewModel>();
+              final success = await vm.deleteFoodLog(_uid(), log.id);
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content:
+                    Text(success ? 'Meal deleted' : 'Failed to delete meal'),
+                backgroundColor: success ? Colors.green : Colors.red,
+              ));
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +268,8 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                                   size: 64, color: colorScheme.outline),
                               const SizedBox(height: 16),
                               Text('No image selected',
-                                  style: TextStyle(color: colorScheme.outline)),
+                                  style:
+                                      TextStyle(color: colorScheme.outline)),
                             ],
                           ),
                         ),
@@ -177,9 +280,19 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: _analyzing ? null : _showImageSourceDialog,
-                          icon: const Icon(Icons.camera_alt),
-                          label: const Text('Select Image'),
+                          onPressed:
+                              _analyzing ? null : _showImageSourceDialog,
+                          icon: _analyzing
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.camera_alt),
+                          label: Text(_analyzing
+                              ? 'Uploading & analyzing…'
+                              : 'Select Image'),
                         ),
                       ),
                     ],
@@ -187,6 +300,7 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                 ),
                 const SizedBox(height: 32),
               ],
+              // Daily total
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 padding: const EdgeInsets.all(16),
@@ -206,14 +320,16 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                     const SizedBox(height: 8),
                     Text(
                       '${vm.totalCaloriesForDate} kcal',
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                            color: colorScheme.primary,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.displaySmall?.copyWith(
+                                color: colorScheme.primary,
+                              ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
+              // Date navigator
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(
@@ -232,7 +348,8 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                           children: [
                             Text(
                               _formatDate(vm.selectedDate),
-                              style: Theme.of(context).textTheme.titleMedium,
+                              style:
+                                  Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(width: 4),
                             Icon(Icons.calendar_today,
@@ -269,67 +386,8 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: vm.foodLogs.length,
-                  itemBuilder: (context, index) {
-                    final log = vm.foodLogs[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: ListTile(
-                        title: Text(log.foodName),
-                        subtitle: Text(
-                          '${log.timestamp.hour}:${log.timestamp.minute.toString().padLeft(2, '0')}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Chip(
-                              label: Text('${log.calories} kcal'),
-                              backgroundColor: colorScheme.secondaryContainer,
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _showEditSheet(log),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('Delete Meal'),
-                                  content: const Text(
-                                      'Are you sure you want to delete this meal?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('Cancel'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () async {
-                                        Navigator.pop(context);
-                                        final success = await vm.deleteFoodLog(
-                                            _uid(), log.id);
-                                        if (!mounted) return;
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(SnackBar(
-                                          content: Text(success
-                                              ? 'Meal deleted'
-                                              : 'Failed to delete meal'),
-                                          backgroundColor: success
-                                              ? Colors.green
-                                              : Colors.red,
-                                        ));
-                                      },
-                                      child: const Text('Delete'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                  itemBuilder: (context, index) =>
+                      _buildLogCard(vm.foodLogs[index], colorScheme),
                 ),
               const SizedBox(height: 32),
             ],
@@ -340,7 +398,56 @@ class _FoodLoggingScreenState extends State<FoodLoggingScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
+// ── Reusable thumbnail widget ──────────────────────────────────────────────
+
+class _FoodThumbnail extends StatelessWidget {
+  final String? imageUrl; // This should be the object key/path now
+  final ColorScheme colorScheme;
+  static final StorageService _storageService = StorageService();
+
+  const _FoodThumbnail({required this.imageUrl, required this.colorScheme});
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 56.0;
+    const radius = BorderRadius.all(Radius.circular(8));
+
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
+      return FutureBuilder<String>(
+        future: _storageService.getPrivateImageUrl(imageUrl!),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+            return ClipRRect(
+              borderRadius: radius,
+              child: CachedNetworkImage(
+                imageUrl: snapshot.data!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => _placeholder(size),
+                errorWidget: (_, __, ___) => _placeholder(size),
+              ),
+            );
+          }
+          return _placeholder(size);
+        },
+      );
+    }
+    return _placeholder(size);
+  }
+
+  Widget _placeholder(double size) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceVariant,
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: Icon(Icons.fastfood_outlined,
+            size: 28, color: colorScheme.onSurfaceVariant),
+      );
+}
+// ── Edit sheet ─────────────────────────────────────────────────────────────
 
 class _EditFoodLogSheet extends StatefulWidget {
   final FoodLog log;
@@ -360,7 +467,13 @@ class _EditFoodLogSheet extends StatefulWidget {
 class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _caloriesController;
+
+  /// Local preview bytes (shown immediately after picking a new image).
   Uint8List? _previewImageBytes;
+
+  /// URL returned from storage after re-analyze upload — persisted on save.
+  String? _newImageUrl;
+
   bool _analyzing = false;
   bool _saving = false;
 
@@ -405,10 +518,12 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
 
     setState(() {
       _analyzing = true;
-      _previewImageBytes = imageBytes;
+      _previewImageBytes = imageBytes; // show local preview while uploading
     });
 
-    final result = await widget.viewModel.reanalyzeImage(imageBytes);
+    // reanalyzeImage now also uploads to iDrive e2 and returns the URL.
+    final result =
+        await widget.viewModel.reanalyzeImage(widget.userId, imageBytes);
 
     if (!mounted) return;
     setState(() => _analyzing = false);
@@ -424,6 +539,7 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
 
     final newName = result['foodName'] as String;
     final newCalories = result['calories'] as int;
+    final uploadedUrl = result['imageUrl'] as String?;
 
     final updateName = await showDialog<bool>(
       context: context,
@@ -446,6 +562,7 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
 
     setState(() {
       _caloriesController.text = newCalories.toString();
+      _newImageUrl = uploadedUrl; // will be persisted on save
       if (updateName == true) _nameController.text = newName;
     });
   }
@@ -474,6 +591,7 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
       widget.log.id,
       foodName: name,
       calories: calories,
+      imageUrl: _newImageUrl, // null → no change; non-null → update in Firestore
     );
 
     if (!mounted) return;
@@ -495,7 +613,69 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final busy = _analyzing || _saving;
+    final StorageService storageService = StorageService();
 
+    // Decide which image to display in the sheet:
+    // 1. Local bytes (just picked) — highest priority
+    // 2. Already-stored network URL
+    // 3. Nothing
+    Widget? imageWidget;
+
+    if (_previewImageBytes != null) {
+      imageWidget = ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.memory(
+          _previewImageBytes!,
+          height: 160,
+          width: double.infinity,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else if (widget.log.imageUrl != null && widget.log.imageUrl!.isNotEmpty) {
+      String objectKey = widget.log.imageUrl!;
+      if (objectKey.contains('/finalproject/')) {
+        objectKey = objectKey.split('/finalproject/')[1];
+      }
+
+      imageWidget = FutureBuilder<String>(
+        future: storageService.getPrivateImageUrl(objectKey),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: CachedNetworkImage(
+                imageUrl: snapshot.data!,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => Container(
+                  height: 160,
+                  color: colorScheme.surfaceVariant,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+                errorWidget: (_, __, ___) => Container(
+                  height: 160,
+                  color: colorScheme.surfaceVariant,
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            );
+          }
+          
+          return Container(
+            height: 160,
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        },
+      );
+    }
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -509,7 +689,8 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
         children: [
           Row(
             children: [
-              Text('Edit Meal', style: Theme.of(context).textTheme.titleLarge),
+              Text('Edit Meal',
+                  style: Theme.of(context).textTheme.titleLarge),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.close),
@@ -518,12 +699,8 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_previewImageBytes != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(_previewImageBytes!,
-                  height: 160, width: double.infinity, fit: BoxFit.cover),
-            ),
+          if (imageWidget != null) ...[
+            imageWidget,
             const SizedBox(height: 16),
           ],
           TextField(
@@ -556,7 +733,8 @@ class _EditFoodLogSheetState extends State<_EditFoodLogSheet> {
                         strokeWidth: 2, color: colorScheme.primary),
                   )
                 : const Icon(Icons.auto_awesome),
-            label: Text(_analyzing ? 'Analyzing…' : 'Re-analyze with new image'),
+            label: Text(
+                _analyzing ? 'Uploading & analyzing…' : 'Re-analyze with new image'),
           ),
           const SizedBox(height: 8),
           FilledButton(

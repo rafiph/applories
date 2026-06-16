@@ -10,9 +10,11 @@ import 'ui/home/home_screen.dart';
 import 'ui/home/profile_viewmodel.dart';
 import 'ui/food/food_logging_viewmodel.dart';
 import 'ui/progress/progress_viewmodel.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );

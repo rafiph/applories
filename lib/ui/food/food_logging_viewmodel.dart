@@ -2,12 +2,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/service/food_service.dart';
+import '../../data/service/storage_service.dart';
 import '../../data/service/vision_service.dart';
 import '../../domain/model/food_log.dart';
 
 class FoodLoggingViewModel extends ChangeNotifier {
   final FoodService _foodService = FoodService();
   final VisionService _visionService = VisionService();
+  final StorageService _storageService = StorageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   List<FoodLog> foodLogs = [];
@@ -25,6 +27,8 @@ class FoodLoggingViewModel extends ChangeNotifier {
         _selectedDate.day == now.day;
   }
 
+  // ── Date navigation ────────────────────────────────────────────────────────
+
   Future<void> changeDate(String userId, DateTime date) async {
     _selectedDate = date;
     await loadFoodLogs(userId);
@@ -35,6 +39,8 @@ class FoodLoggingViewModel extends ChangeNotifier {
 
   Future<void> goToNextDay(String userId) =>
       changeDate(userId, _selectedDate.add(const Duration(days: 1)));
+
+  // ── Image picking ──────────────────────────────────────────────────────────
 
   Future<Uint8List?> captureFromCamera() async {
     try {
@@ -66,19 +72,32 @@ class FoodLoggingViewModel extends ChangeNotifier {
     }
   }
 
-  Future<bool> analyzeFoodImageAndSave(Uint8List imageBytes, String userId) async {
+  // ── Core actions ───────────────────────────────────────────────────────────
+
+  /// Runs Gemini analysis and iDrive e2 upload concurrently, then saves
+  /// the resulting [FoodLog] (with imageUrl) to Firestore.
+  Future<bool> analyzeFoodImageAndSave(
+      Uint8List imageBytes, String userId) async {
     try {
       isLoading = true;
       errorMessage = null;
       notifyListeners();
 
-      final analysisResult = await _visionService.analyzeFoodImage(imageBytes);
+      // Parallel: vision analysis + cloud upload — neither depends on the other.
+      final results = await Future.wait([
+        _visionService.analyzeFoodImage(imageBytes),
+        _storageService.uploadFoodImage(userId, imageBytes),
+      ]);
+
+      final analysisResult = results[0] as Map<String, dynamic>;
+      final imageUrl = results[1] as String;
 
       final foodLog = FoodLog(
         id: '',
         foodName: analysisResult['foodName'] as String,
         calories: analysisResult['calories'] as int,
         timestamp: DateTime.now(),
+        imageUrl: imageUrl,
       );
 
       await _foodService.saveFoodLog(userId, foodLog);
@@ -95,9 +114,21 @@ class FoodLoggingViewModel extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>?> reanalyzeImage(Uint8List imageBytes) async {
+  /// Re-analyzes a new image for an existing log. Uploads the image and
+  /// returns { foodName, calories, imageUrl } so the caller can decide
+  /// what to update.
+  Future<Map<String, dynamic>?> reanalyzeImage(
+      String userId, Uint8List imageBytes) async {
     try {
-      return await _visionService.analyzeFoodImage(imageBytes);
+      final results = await Future.wait([
+        _visionService.analyzeFoodImage(imageBytes),
+        _storageService.uploadFoodImage(userId, imageBytes),
+      ]);
+
+      return {
+        ...(results[0] as Map<String, dynamic>),
+        'imageUrl': results[1] as String,
+      };
     } catch (e) {
       errorMessage = 'Failed to analyze image: $e';
       notifyListeners();
@@ -105,16 +136,19 @@ class FoodLoggingViewModel extends ChangeNotifier {
     }
   }
 
+  /// Updates an existing food log. Pass [imageUrl] to persist a new image URL.
   Future<bool> updateFoodLog(
     String userId,
     String foodLogId, {
     String? foodName,
     int? calories,
+    String? imageUrl,
   }) async {
     try {
       final updates = <String, dynamic>{};
       if (foodName != null) updates['foodName'] = foodName;
       if (calories != null) updates['calories'] = calories;
+      if (imageUrl != null) updates['imageUrl'] = imageUrl;
       if (updates.isEmpty) return true;
 
       await _foodService.updateFoodLog(userId, foodLogId, updates);
